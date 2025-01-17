@@ -35,11 +35,13 @@ float** declareMatrix(int n){
     float** M = (float**)malloc(n * sizeof(float*));
     if(M == NULL){
         fprintf(stderr, "Error in matrix allocation\n");
+        printf("allocation error");
         exit(1);
     }
     M[0] = (float*)malloc(n * n * sizeof(float));
     if(M[0] == NULL){
         fprintf(stderr, "Error in matrix allocation(2)\n");
+        printf("allocation error");
         free(M);
         exit(1);
     }
@@ -58,33 +60,6 @@ void initializeMatrix(float** M, int n) {
     }
 }
 
-/***************************************
-*
-* checkSymOMP() - checks if a given n x n 
-* matrix is symmetric using OpenMP for parallelism
-* input: float** M - pointer to the matrix
-*        int n - the size of the matrix 
-*        (number of rows and columns)
-* output: 1 (true) if the matrix is symmetric,
-*         0 (false) otherwise
-* notes: utilizes OpenMP parallelization with a 
-*        reduction operation to combine results from
-*        multiple threads. Symmetry is determined by 
-*        comparing M[i][j] with M[j][i].
-*
-***************************************/
-int checkSymOMP(float** M, int n) {
-    int tmp = 1;
-#pragma omp parallel for reduction(&&:tmp)
-    for (int i = 1; i < n; i++) {
-        for (int j = 0; j < i; j++) {
-            if (M[i][j] != M[j][i]) {
-                tmp = 0; 
-            }
-        }
-    }
-    return tmp;
-}
 
 // Function to check if a matrix is symmetric
 int checkSym(float** M, int n) {
@@ -98,42 +73,54 @@ int checkSym(float** M, int n) {
     return 1;
 }
 
+int mpicheckSym(float** M, int n, int rank, int size){
+    /*float* local_matrix = NULL;
+    if (rank == 0) {
+        if (M == NULL || M[0] == NULL) {
+            printf("Null matrix detected on root process.\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+        local_matrix = M[0];
+    } else {
+        local_matrix = (float*)malloc(n * n * sizeof(float));
+        if (local_matrix == NULL) {
+            printf("Memory allocation failed on rank %d.\n", rank);
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+    }*/
+   // MPI_Bcast(local_matrix, n * n, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(M[0], n * n, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
+    int rows_per_process = n / size;
+    int start_row = rank * rows_per_process;
+    int end_row = (rank == size - 1) ? n : start_row + rows_per_process;
 
-/***************************************
-*
-* matTransposeOMP() - transposes an n x n 
-* matrix using OpenMP for parallelism and 
-* block-based optimization
-* input: float** M - pointer to the original matrix
-*        float** T - pointer to the transposed matrix
-*        int n - the size of the matrix 
-*        (number of rows and columns)
-*        int blockSize - size of the blocks used for 
-*        block-based transposition
-* output: none (matrix T is modified in place)
-* notes: checks if the matrix M is symmetric using 
-*        checkSymOMP(). If not symmetric, performs 
-*        block-based transposition with parallelization 
-*        to optimize performance on large matrices.
-*
-***************************************/
-void matTransposeOMP(float** M, float** T, int n, int blockSize) {
-    if(checkSymOMP(M,n)==0){
-#pragma omp parallel for collapse(2) shared(M, T)
-    for (int i = 0; i < n; i += blockSize) {
-        for (int j = 0; j < n; j += blockSize) {
-            int check=min(n, (i+blockSize));
-            int check2=min(n, (j+blockSize));
-            for (int ii = i; ii < check; ii++) {
-                for (int jj = j; jj < check2; jj++) {
-                    T[ii][jj] = M[jj][ii];
-                }
+    // Local check for symmetry
+    int local_symmetry = 1;
+    for (int i = start_row; (i < end_row) && local_symmetry; i++) {
+        for (int j=0; (j<i) && local_symmetry; j++) {
+           // if (local_matrix[i * n + j] != local_matrix[j * n + i]) {
+            if (M[i][j] != M[j][i]) {
+                local_symmetry = 0;
             }
         }
     }
-    }
+    
+    int global_symmetry;
+    MPI_Allreduce(&local_symmetry, &global_symmetry, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
+
+    //MPI_Reduce(&local_symmetry, &global_symmetry, 1, MPI_INT, MPI_LAND, 0, MPI_COMM_WORLD);
+    
+    //MPI_Bcast(&global_symmetry, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    //free(local_matrix);
+    
+    /*if (rank != 0) {
+        free(local_matrix);
+    }*/
+    return global_symmetry;
 }
+
+
 
 // Function to transpose a local chunk of columns with symmetry check
 void matTranspose(float** M, float** T, int n){
@@ -146,147 +133,83 @@ void matTranspose(float** M, float** T, int n){
     }
 }
 
-void localTranspose(float* local_columns, float* local_transposed, int cols_per_process, int n) {
-    for (int i = 0; i < cols_per_process; i++) {
+void localTranspose(float* local_matrix, float* local_transposed, int rows_p, int n) {
+    for (int i = 0; i < rows_p; i++) {
         for (int j = 0; j < n; j++) {
-            local_transposed[j * cols_per_process + i] = local_columns[i * n + j];
+            local_transposed[j * rows_p + i] = local_matrix[i * n + j];
         }
     }
 }
 
 // Function to handle MPI setup, scatter, gather, and transposition
-void mpiMatrixTranspose(int n, int rank, int size){
-    float** matrix = NULL;  // Original matrix
-    float** result = NULL;  // Transposed matrix
-
-    int cols_per_process = n / size; // Number of columns per process
-
-    // Master process initializes the matrix
-    if (rank == 0) {
-        matrix = declareMatrix(n);
-        initializeMatrix(matrix, n);
-
-        /*for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < n; ++j) {
-                matrix[j][i] = i * n + j; // Fill with some values
-            }
-        }*/
-
-        printf("Original matrix:\n");
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                printf("%.2f ", matrix[i][j]); // Access by rows for display
-            }
-            printf("\n");
+void mpiMatrixTranspose(float** M, float** T, int n, int rank, int size){
+    /*
+    if (mpicheckSym(M, n, rank, size) == 1) {
+        if (rank == 0) {
+            printf("Matrix is symmetric. No transpose needed.\n");
         }
-    }
-
-    // Allocate local buffers for scattering and transposing
-    float* local_columns = (float*)malloc(cols_per_process * n * sizeof(float));
-    float* local_transposed = (float*)malloc(cols_per_process * n * sizeof(float));
-
-    // Scatter columns from the original matrix to all processes
-    MPI_Scatter(matrix ? matrix[0] : NULL, cols_per_process * n, MPI_FLOAT,
-                local_columns, cols_per_process * n, MPI_FLOAT,
-                0, MPI_COMM_WORLD);
-
-  /*    // Print the scattered columns for debugging
-    for (int rank_id = 0; rank_id < size; rank_id++) {
-        if (rank == rank_id) {
-            printf("\n------ RANK %d RECEIVED COLS -----\n", rank);
-            for (int i = 0; i < n; i++) {
-                for (int j = 0; j < cols_per_process; j++) {
-                    printf("%.2f ", local_columns[i * n + j]);
-                }
-                printf("\n");
-            }
-        }
-        MPI_Barrier(MPI_COMM_WORLD); // Synchronize for ordered printing
+        return;
     }*/
-    // Print the scattered rows for debugging
-    for (int rank_id = 0; rank_id < size; rank_id++) {
-        if (rank == rank_id) {
-            printf("\n------ RANK %d RECEIVED ROWS -----\n", rank);
-            for (int i = 0; i < cols_per_process; i++) {
-                for (int j = 0; j < n; j++) {
-                    printf("%.2f ", local_columns[i * n + j]);
-                }
-                printf("\n");
-            }
-        }
-        MPI_Barrier(MPI_COMM_WORLD); // Synchronize for ordered printing
-        
-    }
-  
-    localTranspose(local_columns, local_transposed, cols_per_process, n);
-
-    MPI_Barrier(MPI_COMM_WORLD);
     
-    // Print the scattered columns for debugging
-    for (int rank_id = 0; rank_id < size; rank_id++) {
-        if (rank == rank_id) {
-            printf("\n------ RANK %d RECEIVED COLS -----\n", rank);
-            for (int i = 0; i < n; i++) {
-                for (int j = 0; j < cols_per_process; j++) {
-                    printf("%.2f ", local_transposed[i * cols_per_process + j]);
-                }
-                printf("\n");
-            }
-        }
-        MPI_Barrier(MPI_COMM_WORLD); // Synchronize for ordered printing
+    
+    if(mpicheckSym(M, n, rank, size)==0){
+    int rows_p = n / size;
+    if (rank == size - 1) {
+      rows_p += n % size;  // Handle remainder
     }
+    // Allocate local buffers for scattering and transposing
+    float* local_matrix = (float*)malloc(rows_p * n * sizeof(float));
+    float* local_transposed = (float*)malloc(rows_p * n * sizeof(float));
+    if (local_matrix == NULL || local_transposed == NULL) {
+      printf("Failed to allocate local buffers on rank %d.\n", rank);
+    }
+
+    MPI_Scatter(M?M[0]:NULL, rows_p * n, MPI_FLOAT, local_matrix, rows_p * n, MPI_FLOAT, 0, MPI_COMM_WORLD);
+ 
+    for (int i = 0; i < rows_p; i++) {
+        for (int j = 0; j < n; j++) {
+            local_transposed[j * rows_p + i] = local_matrix[i * n + j];
+        }
+    }
+    //localTranspose(local_matrix, local_transposed, rows_p, n);
+    /*
 
     if (rank == 0) {
-        result = declareMatrix(n); 
+        result = declareMatrix(n);  //declared in the main
     }
-
-    // Gather transposed columns back to the master process
-    MPI_Gather(local_transposed, cols_per_process * n, MPI_FLOAT,
-               result ? result[0] : NULL, cols_per_process * n, MPI_FLOAT,
+*/
+    MPI_Gather(local_transposed, rows_p * n, MPI_FLOAT,
+               T ? T[0] : NULL, rows_p * n, MPI_FLOAT,
                0, MPI_COMM_WORLD);
-
-
- // Reorganize the gathered data on the root process
+// Reorganize the gathered data on the root process
    if (rank == 0) {
+     //printf(" reordering ");
         float* temp = (float*)malloc(n * n * sizeof(float));
         for (int r = 0; r < size; r++) {
-            //int start_col = r * cols_per_process;
-            int start = r * cols_per_process * n;
+            //int start = r * rows_p * n;
             for(int i=0; i<n; i++){
-               for(int j=0; j<cols_per_process; j++){
-                   temp[i * n + j + r*cols_per_process] = result[0][start + i*cols_per_process + j];
+               for(int j=0; j<rows_p; j++){
+                   temp[i * n + j + r*rows_p] = T[0][ r * rows_p * n + i*rows_p + j];
                }              
             }
-            
-            /*for (int i = 0; i < cols_per_process; i++) {
-                for (int j = 0; j < n; j++) {
-                    temp[j * n + start_col + i] = result[0][r * cols_per_process * n + i * n + j];
-                }
-            }*/
         }
-
-        // Copy the reorganized data back into the result matrix
-        memcpy(result[0], temp, n * n * sizeof(float));
-        free(temp);
-
-        // Print the transposed matrix
-        printf("\nTransposed matrix:\n");
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                printf("%.2f ", result[i][j]);
-            }
-            printf("\n");
-        }
-
-        // Free the matrices
-        freeMatrix(matrix);
-        freeMatrix(result);
+        //printf("copying");
+        memcpy(T[0], temp, n * n * sizeof(float));
+       // freeMatrix(matrix);
+       // freeMatrix(result);
+       free(temp);
     }
-
     // Free local buffers
-    free(local_columns);
+    free(local_matrix);
     free(local_transposed);
+    //printf("finished");
+    
+  }
+  else{
+    printf("ERRORRRRRRR!");
+  }
 }
+
 
 
 void printMatrix(float **M, int n){
@@ -329,7 +252,7 @@ double timeAverage(double sort[], int n) {
     if (range == 0) 
     	return 0.0; 
  
-    int starti = (n - range) / 2;  
+    int starti = (int)((n - range) / 2);  
     int endi = starti + range;  
  
     double sum = 0.0; 
@@ -373,7 +296,7 @@ void cache_flush() {
     }
 
     for (size_t i = 0; i < cache_size; i++) {
-        array[i] = 0; 
+        array[i] = 1; 
     }
 
     free(array);
