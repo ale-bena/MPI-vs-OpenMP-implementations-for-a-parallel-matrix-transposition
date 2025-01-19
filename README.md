@@ -97,12 +97,12 @@ When the VPN is activated, proceed with the following steps:
      ```bash
      cd project
      ```
-   - Open the `exec.pbs` file:
+   - Open the `exec_mpi.pbs` file:
      - Right-click the file and select **Open with default text editor**.
      - Locate the line:
        ```bash
-       # Select the working directory (change this line)
-       cd /home/alessandro.benassi/project
+      # path of the directory, change it in order to run
+      dir_path="/home/alessandro.benassi/MPIproject"
        ```
      - Replace `alessandro.benassi` with your `name.surname`.
 
