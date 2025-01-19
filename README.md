@@ -103,7 +103,7 @@ When the VPN is activated, proceed with the following steps:
      - Locate the line:
        ```bash
        # path of the directory, change it in order to run
-       dir_path="/home/alessandro.benassi/MPIproject"
+       dir_path="/home/alessandro.benassi/project"
        ```
      - Replace `alessandro.benassi` with your `name.surname`.
 
