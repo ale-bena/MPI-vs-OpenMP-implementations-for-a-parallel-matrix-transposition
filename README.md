@@ -116,14 +116,13 @@ After some time, a folder named `result_1` should appear, and you should see the
 6. **Project Structure Overview**
    - The project contains multiple implementations:
      - **Sequential**: Three files (header, function, and main).
-     - **Implicit**: Three files (header, function, and main).
+     - **MPI**: Three files (header, function, and main).
      - **OpenMP**: Three files (header, function, and main).
-     - **Block-based OpenMP**: Three files (header, function, and main).
    - This modular approach ensures reusability and clarity for external users.
 
 7. **Compute Speedup**
    - Run the **Sequential** implementation as a baseline.
-   - Use the results to compute speedup for the **Implicit** and **OpenMP** implementations.
+   - Use the results to compute speedup for the **MPI** and **OpenMP** implementations.
    - Without sequential execution data, speedup cannot be calculated.
 
 ---
