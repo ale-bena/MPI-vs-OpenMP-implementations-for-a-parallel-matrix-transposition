@@ -1,0 +1,95 @@
+#!/bin/bash
+# Job name
+#PBS -N job
+# Output files
+#PBS -o ./job.o
+#PBS -e ./job.e
+# Queue name
+#PBS -q short_cpuQ
+# Set the maximum wall time
+#PBS -l walltime=0:15:00
+# Number of nodes, cpus, mpi processors and amount of memory
+#PBS -l select=1:ncpus=65:mpiprocs=65:mem=3Gb
+
+# Modules for gcc and MPI
+module load gcc91
+module load mpich-3.2.1--gcc-9.1.0
+
+gcc() {
+    gcc-9.1.0 "$@"
+}
+gcc --version
+
+
+# path of the directory, change it in order to run
+dir_path="/home/alessandro.benassi/MPIproject"
+# result directory name
+dir_name="result_"
+
+# Select the working directory 
+cd "$dir_path"
+
+# architecture data
+lscpu
+
+
+# VARIABLES
+# number of repetitions
+repetitions="25"
+# dimension of the matrix list
+input_num=("16" "32" "64" "128" "256" "512" "1024" "2048" "4096")
+# number of threads list
+n_threads=("1" "2" "4" "8" "16" "32" "64")
+
+n=1
+
+# check if the result directory already exists
+while [ -d "${dir_path}/${dir_name}${n}" ]; do
+  n=$((n+1))
+done
+
+# create a new directory result_n inside the given path
+new_dir="${dir_path}/${dir_name}${n}"
+mkdir -p "$new_dir"
+
+
+# SEQUENTIAL
+# gcc seqfunc.c seqmain.c -fopenmp
+gcc -O0 -o seq1 seqfunc.c seqmain.c -fopenmp
+for input in "${input_num[@]}"; do
+	  echo "Running the program with $input"
+	  ./seq1 "$input" "$repetitions"
+done
+
+# OMP
+# gcc ompfunc.c ompmain.c -fopenmp 
+gcc -O2 -o omp ompfunc.c ompmain.c -fopenmp
+export OMP_SCHEDULE=STATIC
+for input in "${input_num[@]}"; do
+# echo "Running omp with $input"
+	for i in "${n_threads[@]}"; do
+		echo "Omp $input $i"
+		./omp "$input" "$i" "$repetitions"
+	done
+done
+
+# MPI
+# mpicc mpifunc.c mpimain.c
+mpicc -O2 -o exec mpifunc.c mpimain.c
+# Run the code
+for input in "${input_num[@]}"; do
+	  for i in "${n_threads[@]}"; do
+		    echo "MPI $input $i"
+		       mpirun -np "$i" ./exec "$input" "$repetitions"
+	  done
+
+done
+
+# file name declarations
+first="times_table.csv"
+second="times_average.csv"
+
+# moving files to the new directory
+mv "$first" "${dir_name}${n}"
+ 
+mv "$second" "${dir_name}${n}"
