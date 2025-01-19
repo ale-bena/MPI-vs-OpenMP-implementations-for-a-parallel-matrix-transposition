@@ -109,7 +109,7 @@ When the VPN is activated, proceed with the following steps:
 
    - Run the PBS file to execute the project:
      ```bash
-     qsub exec.pbs
+     qsub exec_mpi.pbs
      ```
 After some time, a folder named `result_1` should appear, and you should see the files `times_tables.csv` and `times_average.csv` in the project folder. When the execution terminates, these files will be moved to the `result_1` directory.
 
