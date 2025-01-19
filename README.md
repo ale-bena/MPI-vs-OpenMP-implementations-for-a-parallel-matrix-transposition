@@ -1,4 +1,4 @@
-# Matrix-Transposition-Optimization
+# MPI-vs-OpenMP-implementations-for-a-parallel-matrix-transposition
 
 ## Instructions for Running on Windows
 
